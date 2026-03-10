@@ -256,8 +256,8 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
             {
                 "date": w["date"],
                 "name": decimal_to_float(w["data"]).get("name", "Unknown"),
-                "duration": decimal_to_float(w["data"]).get("duration", 0),
-                "calories": round(_num(decimal_to_float(w["data"]).get("activeEnergyBurned", decimal_to_float(w["data"]).get("totalEnergyBurned", 0))), 0),
+                "duration": round(_num(decimal_to_float(w["data"]).get("duration", 0)) / 60, 0),  # seconds → minutes
+                "calories": round(_num(decimal_to_float(w["data"]).get("activeEnergyBurned", decimal_to_float(w["data"]).get("totalEnergyBurned", 0))) / 4.184, 0),  # kJ → kcal
                 "avg_hr": _num(decimal_to_float(w["data"]).get("avgHeartRate")) or None,
             }
             for w in workouts
@@ -307,7 +307,10 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
         if h is not None:
             bedtime_hours.append(h)
 
-    bedtime_std_min = (statistics.stdev(bedtime_hours) * 60) if len(bedtime_hours) >= 2 else 0
+    # Normalize bedtimes around midnight: hours > 12 become negative
+    # (e.g., 23:00 → -1, 0:30 → 0.5, 1:00 → 1) so stdev works across midnight
+    normalized_bedtimes = [h - 24 if h > 12 else h for h in bedtime_hours]
+    bedtime_std_min = (statistics.stdev(normalized_bedtimes) * 60) if len(normalized_bedtimes) >= 2 else 0
     sleep_totals = [float(s.get("totalSleep", 0)) for s in sleep_by_date.values()]
     sleep_range = (max(sleep_totals) - min(sleep_totals)) if len(sleep_totals) >= 2 else 0
     step_mean = _safe_avg(step_list) or 1
@@ -463,7 +466,16 @@ def lambda_handler(event, context):
     if ref_date_str:
         ref_date = date.fromisoformat(ref_date_str)
     else:
-        ref_date = date.today()
+        # Always report on the most recently completed Sun-Sat week
+        # If today is Sunday, that's the previous Sun-Sat
+        # If today is any other day, go back to last Sunday first
+        today = date.today()
+        weekday = today.weekday()  # Mon=0, Sun=6
+        if weekday == 6:  # Sunday
+            ref_date = today
+        else:
+            # Go back to last Sunday
+            ref_date = today - timedelta(days=weekday + 1)
 
     result = aggregate_week(user_id, ref_date)
 
