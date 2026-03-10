@@ -2,20 +2,20 @@ from datetime import date, datetime, timedelta, time
 
 
 def get_week_range(ref_date: date) -> tuple[date, date]:
-    """Return (sunday, saturday) for the week containing ref_date.
-    Week runs Sunday to Saturday. If ref_date is Sunday,
-    returns the week ending on the previous Saturday.
+    """Return (start, end) for the report period.
+
+    - Sunday (auto trigger): previous Sun-Sat week
+    - Any other day (manual trigger): last 7 days ending yesterday
     """
     weekday = ref_date.weekday()  # Monday=0, Sunday=6
     if weekday == 6:  # Sunday — report covers the PREVIOUS Sun-Sat
-        saturday = ref_date - timedelta(days=1)
+        end = ref_date - timedelta(days=1)  # Saturday
+        start = end - timedelta(days=6)     # Sunday
     else:
-        # Find the Saturday ending the current Sun-Sat week
-        # Saturday has weekday=5. Days until Saturday:
-        days_until_saturday = (5 - weekday) % 7
-        saturday = ref_date + timedelta(days=days_until_saturday)
-    sunday = saturday - timedelta(days=6)
-    return sunday, saturday
+        # Manual mid-week trigger: last 7 days ending yesterday
+        end = ref_date - timedelta(days=1)
+        start = end - timedelta(days=6)
+    return start, end
 
 
 def get_date_range(end_date: date, days: int) -> tuple[date, date]:

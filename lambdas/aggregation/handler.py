@@ -466,16 +466,7 @@ def lambda_handler(event, context):
     if ref_date_str:
         ref_date = date.fromisoformat(ref_date_str)
     else:
-        # Always report on the most recently completed Sun-Sat week
-        # If today is Sunday, that's the previous Sun-Sat
-        # If today is any other day, go back to last Sunday first
-        today = date.today()
-        weekday = today.weekday()  # Mon=0, Sun=6
-        if weekday == 6:  # Sunday
-            ref_date = today
-        else:
-            # Go back to last Sunday
-            ref_date = today - timedelta(days=weekday + 1)
+        ref_date = date.today()
 
     result = aggregate_week(user_id, ref_date)
 

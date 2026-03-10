@@ -9,16 +9,23 @@ from lambdas.shared.dates import (
 
 def test_get_week_range_sunday_to_saturday():
     """Sunday Mar 8 → covers previous Sun Mar 1 to Sat Mar 7."""
-    sun, sat = get_week_range(date(2026, 3, 8))  # Sunday Mar 8
-    assert sun == date(2026, 3, 1)  # Previous Sunday
-    assert sat == date(2026, 3, 7)  # Previous Saturday
+    start, end = get_week_range(date(2026, 3, 8))  # Sunday Mar 8
+    assert start == date(2026, 3, 1)  # Previous Sunday
+    assert end == date(2026, 3, 7)    # Previous Saturday
 
 
 def test_get_week_range_from_midweek():
-    """Wednesday Mar 4 → containing Sun Mar 1 to Sat Mar 7."""
-    sun, sat = get_week_range(date(2026, 3, 4))  # Wednesday
-    assert sun == date(2026, 3, 1)
-    assert sat == date(2026, 3, 7)
+    """Wednesday Mar 4 (manual) → last 7 days: Thu Feb 26 to Tue Mar 3."""
+    start, end = get_week_range(date(2026, 3, 4))  # Wednesday
+    assert end == date(2026, 3, 3)    # Yesterday (Tuesday)
+    assert start == date(2026, 2, 25) # 7 days back
+
+
+def test_get_week_range_tuesday():
+    """Tuesday Mar 10 (manual) → Mon Mar 3 to Mon Mar 9."""
+    start, end = get_week_range(date(2026, 3, 10))
+    assert end == date(2026, 3, 9)    # Yesterday (Monday)
+    assert start == date(2026, 3, 3)  # 7 days back
 
 
 def test_get_date_range_30_days():
