@@ -7,15 +7,15 @@ def get_week_range(ref_date: date) -> tuple[date, date]:
     returns the week ending on the previous Saturday.
     """
     weekday = ref_date.weekday()  # Monday=0, Sunday=6
-    if weekday == 6:  # Sunday — report covers the Mon-Sun week ending today
-        end = ref_date
-        start = ref_date - timedelta(days=6)
+    if weekday == 6:  # Sunday — report covers the PREVIOUS Sun-Sat
+        saturday = ref_date - timedelta(days=1)
     else:
-        # Find the previous Sunday (start) and coming Saturday (end)
-        days_since_sunday = (weekday + 1) % 7
-        start = ref_date - timedelta(days=days_since_sunday)
-        end = start + timedelta(days=6)
-    return start, end
+        # Find the Saturday ending the current Sun-Sat week
+        # Saturday has weekday=5. Days until Saturday:
+        days_until_saturday = (5 - weekday) % 7
+        saturday = ref_date + timedelta(days=days_until_saturday)
+    sunday = saturday - timedelta(days=6)
+    return sunday, saturday
 
 
 def get_date_range(end_date: date, days: int) -> tuple[date, date]:
