@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 
-DAY_ABBREVS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+DAY_ABBREVS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def format_hours_minutes(hours: float | None) -> str:
@@ -380,7 +380,10 @@ def render_records_section(data: dict) -> str:
 
     for key, val in this_week.items():
         label = key.replace("_", " ").title()
-        lines.append(f"  • {label}: {val}")
+        if isinstance(val, float):
+            lines.append(f"  • {label}: {val:.1f}")
+        else:
+            lines.append(f"  • {label}: {val}")
 
     lines.append("═" * 53)
     return "\n".join(lines)
