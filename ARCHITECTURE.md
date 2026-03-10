@@ -36,9 +36,11 @@ The system has two independent pipelines that share the same database:
 | Pipeline | Trigger | Purpose |
 |----------|---------|---------|
 | **Ingestion Pipeline** | Phone sends data every 2 hours | Receive → validate → store health data |
-| **Analysis Pipeline** | Scheduled (daily 6:30 AM, Sunday 7:30 AM) | Read stored data → compute scores → generate insights → email |
+| **Analysis Pipeline** | Scheduled (Sunday 10 AM) | Read stored data → compute scores → generate insights → email |
 
 They never run at the same time in a dependent way. Ingestion writes data, analysis reads it.
+
+The weekly schedule (Sunday morning covering Sun–Sat) ensures all sleep data is complete — no risk of partial data from the current night.
 
 ---
 
@@ -233,9 +235,7 @@ Our processor uses `ConditionExpression="attribute_not_exists(PK)"` — it only 
 │   EventBridge     │
 │   (cron scheduler)│
 │                   │
-│  Daily 6:30 AM ──────┐
-│  Sunday 7:30 AM ─────┤
-│  Anomaly check ──────┤
+│  Sunday 10:00 AM ────┤
 └──────────────────┘   │
                         │
                         ▼
@@ -327,37 +327,30 @@ With Step Functions:
   You can see exactly where it failed and why
 ```
 
-### Email Types
+### Email: Weekly Report (Sunday 10 AM, covers Sunday–Saturday)
 
-**Morning Briefing (Daily 6:45 AM):**
 ```
-Subject: Wednesday — Sleep 78, Recovery 84
-
-Sleep Score: 78 (Good) — 6h48m, solid deep sleep, bedtime 23 min later than usual.
-Recovery: 84 (Push it) — RHR 2 bpm below baseline. Good day for intensity.
-Today's nudge: Deep sleep is 15% higher after afternoon workouts.
-Keep today's session before 6 PM.
-```
-
-**Weekly Deep-Dive (Sunday 8 AM):**
-```
-Subject: Week of Mar 2-8 — Sleep 74 ↑, Fitness 81, Recovery 77
+Subject: HealthForge — Week of Mar 2-8 | Sleep 74 ↑ Fitness 81 Recovery 77
 
 WEEK AT A GLANCE
   Sleep:    74 (↑3 from last week)
   Fitness:  81 (steady)
   Recovery: 77 (↓2)
 
-SLEEP DEEP-DIVE
+SLEEP
+  Mon: 82  Tue: 89  Wed: 71  Thu: 58  Fri: 75  Sat: 80
   Best night: Tuesday (89) — 7h12m, early bedtime
   Worst night: Thursday (58) — 5h30m, late screen time
-  Average: 6h38m | Efficiency: 88%
-  Bedtime consistency: ±22 min (good)
+  Average: 6h38m | Efficiency: 88% | Bedtime consistency: ±22 min
 
-FITNESS RECAP
+FITNESS
   Active days: 5/7 | Calories: 3,240 (↑8%)
   Workout streak: 12 days
   Top session: Thursday run — 45 min, 420 cal
+
+RECOVERY
+  Mon: 81  Tue: 84  Wed: 72  Thu: 65  Fri: 78  Sat: 82
+  Average: 77 | Trend: stable
 
 THIS WEEK'S INSIGHT
   [Gemini-generated paragraph from computed correlations]
@@ -366,20 +359,12 @@ ONE THING TO TRY
   Your Thursday sleep is consistently your worst (avg 64).
   Consider a wind-down routine on Wednesday nights.
 
-HEART RATE CHECK
-  RHR: 57 bpm (normal range) | HRV: 44ms (stable)
-```
+HEART RATE
+  RHR: 57 bpm (normal) | HRV: 44ms (stable)
 
-**Anomaly Alert (max 2/week):**
-```
-Subject: ⚠️ Resting heart rate elevated — 2 days running
-
-Your RHR has been 67 bpm for the last 2 days.
-Your 30-day average is 58 bpm (this is 2.1 standard deviations above).
-Last time this happened: Feb 12 (resolved after 3 days).
-
-This could indicate: stress, dehydration, oncoming illness, or overtraining.
-No action needed unless it persists beyond 3-4 days.
+⚠️ ANOMALY (if any)
+  RHR was elevated Thu-Fri (67 bpm vs 58 bpm baseline, 2.1 std devs).
+  Last time this happened: Feb 12 (resolved after 3 days).
 ```
 
 ---
@@ -555,10 +540,10 @@ In DynamoDB, you put everything in one table and use the key structure to differ
 | Week | What | Status |
 |------|------|--------|
 | **Week 1** | CDK stacks + API Gateway + Lambda + DynamoDB + SQS. Health Auto Export configured. Raw data landing. | ✅ Built |
-| **Week 2** | Derived metrics (rolling avgs, baselines). Sleep Score formula. Morning briefing email via SES. | Upcoming |
-| **Week 3** | Weekly deep-dive email with Step Functions + Gemini Flash insight paragraph. | Upcoming |
-| **Week 4** | Recovery score + anomaly detection + alerts. | Upcoming |
-| **Week 5+** | Correlation engine, fitness score, query API, web app, Cognito auth. | Future |
+| **Week 2** | Derived metrics (rolling avgs, baselines). Sleep Score + Fitness Score formulas. | Upcoming |
+| **Week 3** | Weekly report email with Step Functions + Gemini Flash insight. EventBridge Sunday 10 AM. | Upcoming |
+| **Week 4** | Recovery score + anomaly detection (included in weekly report). | Upcoming |
+| **Week 5+** | Correlation engine, query API, web app, Cognito auth. | Future |
 
 ---
 

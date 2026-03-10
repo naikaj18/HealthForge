@@ -83,27 +83,49 @@ Output: "Push it" (80+) / "Steady" (60-79) / "Recover" (<60)
 
 ## Email Touchpoints
 
-### Morning Briefing (Daily 6:45 AM, 3-5 lines)
-```
-Subject: Wednesday — Sleep 78, Recovery 84
-
-Sleep Score: 78 (Good) — 6h48m, solid deep sleep, bedtime 23 min later than usual.
-Recovery: 84 (Push it) — RHR 2 bpm below baseline. Good day for intensity.
-Today's nudge: Deep sleep is 15% higher after afternoon workouts. Keep today's session before 6 PM.
-```
-
-### Weekly Deep-Dive (Sunday 8 AM, ~400 words)
-- Week at a glance (3 scores with arrows)
-- Sleep deep-dive (best/worst night, averages, consistency)
-- Fitness recap (active days, calories, streak)
+### Weekly Report (Sunday 10 AM, covers Sunday–Saturday)
+- Week at a glance (3 scores with arrows vs prior week)
+- Sleep deep-dive (best/worst night, nightly scores, averages, consistency)
+- Fitness recap (active days, calories, streak, workouts)
+- Recovery trends (daily recovery scores across the week)
 - This week's insight (Gemini Flash-generated from computed correlations)
 - One thing to try this week
 - Heart rate check (minimal unless anomaly)
+- Anomaly callouts if any metric exceeded 2 std devs from 30-day baseline
 
-### Anomaly Alerts (max 2/week)
-- Only fire when metric exceeds 2 std devs from 30-day baseline for 2+ consecutive days
-- Rate-limited: max 1 alert per metric per 48 hours
-- Include historical context ("Last time this happened was...")
+```
+Subject: HealthForge — Week of Mar 2-8 | Sleep 74 ↑ Fitness 81 Recovery 77
+
+WEEK AT A GLANCE
+  Sleep:    74 (↑3 from last week)
+  Fitness:  81 (steady)
+  Recovery: 77 (↓2)
+
+SLEEP
+  Mon: 82  Tue: 89  Wed: 71  Thu: 58  Fri: 75  Sat: 80
+  Best night: Tuesday (89) — 7h12m, early bedtime
+  Worst night: Thursday (58) — 5h30m, late screen time
+  Average: 6h38m | Efficiency: 88% | Bedtime consistency: ±22 min
+
+FITNESS
+  Active days: 5/7 | Calories: 3,240 (↑8%)
+  Workout streak: 12 days
+  Top session: Thursday run — 45 min, 420 cal
+
+RECOVERY
+  Mon: 81  Tue: 84  Wed: 72  Thu: 65  Fri: 78  Sat: 82
+  Average: 77 | Trend: stable
+
+THIS WEEK'S INSIGHT
+  [Gemini-generated paragraph from computed correlations]
+
+ONE THING TO TRY
+  Your Thursday sleep is consistently your worst (avg 64).
+  Consider a wind-down routine on Wednesday nights.
+
+HEART RATE
+  RHR: 57 bpm (normal) | HRV: 44ms (stable)
+```
 
 ## Apple Health Metrics to Ingest
 
@@ -179,10 +201,10 @@ Baselines:
 
 ## Build Order
 1. **Week 1:** CDK stacks + API Gateway + Lambda + DynamoDB. Health Auto Export configured. Raw data landing.
-2. **Week 2:** Derived metrics (rolling avgs, baselines). Sleep Score formula. Morning briefing email.
-3. **Week 3:** Weekly deep-dive email with Step Functions + Gemini Flash insight paragraph.
-4. **Week 4:** Recovery score + anomaly detection + alerts.
-5. **Week 5+:** Correlation engine, fitness score, query API, iterate.
+2. **Week 2:** Derived metrics (rolling avgs, baselines). Sleep Score + Fitness Score formulas.
+3. **Week 3:** Weekly report email with Step Functions + Gemini Flash insight. EventBridge Sunday 10 AM schedule.
+4. **Week 4:** Recovery score + anomaly detection (included in weekly report).
+5. **Week 5+:** Correlation engine, query API, web app, iterate.
 
 ## Build Phases
 - **Phase 1 (Now):** Email-only product, single user, no auth, templates + Gemini Flash for insights
