@@ -2,6 +2,34 @@ from datetime import date, timedelta
 
 DAY_ABBREVS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
+GREETINGS = [
+    "Here's how your week shaped up.",
+    "Your weekly health snapshot is ready.",
+    "Let's see how you did this week.",
+]
+
+
+def _greeting_for_date(d: str) -> str:
+    """Pick a greeting based on week start date."""
+    if not d:
+        return GREETINGS[0]
+    day_num = sum(int(c) for c in d if c.isdigit())
+    return GREETINGS[day_num % len(GREETINGS)]
+
+
+def _fmt_date_range(start: str, end: str) -> str:
+    """Format date range nicely: Mar 3 - 9, 2026."""
+    try:
+        s = date.fromisoformat(start)
+        e = date.fromisoformat(end)
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        if s.month == e.month:
+            return f"{months[s.month-1]} {s.day} - {e.day}, {s.year}"
+        return f"{months[s.month-1]} {s.day} - {months[e.month-1]} {e.day}, {e.year}"
+    except (ValueError, IndexError):
+        return f"{start} to {end}"
+
 
 def format_hours_minutes(hours: float | None) -> str:
     if hours is None:
@@ -17,7 +45,7 @@ def format_steps(steps: float | None) -> str:
     return f"{steps/1000:.1f}k"
 
 
-def render_score_bar(score: float, width: int = 24) -> str:
+def render_score_bar(score: float, width: int = 16) -> str:
     filled = int((score / 100) * width)
     return "█" * filled + "░" * (width - filled)
 
@@ -25,12 +53,12 @@ def render_score_bar(score: float, width: int = 24) -> str:
 def _wow_text(current: float | None, prior: float | None) -> str:
     """Week-over-week comparison text."""
     if current is None or prior is None:
-        return "—"
+        return ""
     diff = round(current - prior)
     if abs(diff) <= 1:
-        return "steady"
+        return "→ steady"
     arrow = "↑" if diff > 0 else "↓"
-    return f"{arrow}{abs(diff)} from last week"
+    return f"{arrow}{abs(diff)} vs last wk"
 
 
 def _pct_change(current: float, prior: float) -> str:
@@ -44,6 +72,20 @@ def _pct_change(current: float, prior: float) -> str:
     return "steady"
 
 
+def _section_header(emoji: str, title: str) -> list[str]:
+    return ["", f"{emoji}  {title}", "╌" * 44]
+
+
+def _grade_emoji(grade: str) -> str:
+    if grade.startswith("A"):
+        return "🟢"
+    if grade.startswith("B"):
+        return "🔵"
+    if grade.startswith("C"):
+        return "🟡"
+    return "🔴"
+
+
 def render_weekly_scores(data: dict, prior_week: dict | None) -> str:
     scores = [
         ("Sleep", data.get("sleep", {}).get("avg_score"), prior_week.get("sleep", {}).get("avg_score") if prior_week else None),
@@ -53,21 +95,21 @@ def render_weekly_scores(data: dict, prior_week: dict | None) -> str:
         ("Cardio", data.get("cardio", {}).get("score"), prior_week.get("cardio", {}).get("score") if prior_week else None),
     ]
 
-    lines = [
-        "🏆 WEEKLY SCORES",
-        "─" * 53,
-    ]
+    lines = _section_header("🏆", "WEEKLY SCORES")
+
     for name, score, prior in scores:
         s = score if score is not None else 0
         bar = render_score_bar(s)
         wow = _wow_text(score, prior)
-        lines.append(f"  {name:13s} {s:3.0f}  {bar}  {wow}")
+        wow_str = f"  {wow}" if wow else ""
+        lines.append(f"  {name:<12s} {s:3.0f}  {bar}{wow_str}")
 
     overall = data.get("overall", {})
     grade = overall.get("grade", "?")
     avg = overall.get("avg_score", 0)
+    gem = _grade_emoji(grade)
     lines.append("")
-    lines.append(f"  Overall Week: {grade} ({avg:.0f})")
+    lines.append(f"  {gem} Overall: {grade} ({avg:.0f}/100)")
 
     return "\n".join(lines)
 
@@ -81,14 +123,9 @@ def render_sleep_section(data: dict) -> str:
     if nights < 3:
         return ""
 
-    # Get sorted dates
     dates = sorted(daily.keys())
 
-    lines = [
-        "",
-        "😴 SLEEP",
-        "─" * 53,
-    ]
+    lines = _section_header("😴", "SLEEP")
 
     # Daily scores row
     day_headers = []
@@ -100,26 +137,32 @@ def render_sleep_section(data: dict) -> str:
         day_scores.append(f"{score:4.0f}" if score is not None else "   —")
 
     lines.append("  " + " ".join(day_headers))
-    avg_str = f"avg: {sleep['avg_score']:.0f}" if sleep.get("avg_score") else ""
-    tracked_str = f"({nights} of 7 nights)" if nights < 7 else ""
-    lines.append("  " + " ".join(day_scores) + f"    {avg_str} {tracked_str}".rstrip())
+    lines.append("  " + " ".join(day_scores))
+
+    avg_str = f"avg {sleep['avg_score']:.0f}" if sleep.get("avg_score") else ""
+    tracked_str = f" ({nights}/7 nights)" if nights < 7 else ""
+    if avg_str:
+        lines.append(f"  {'':>28s}{avg_str}{tracked_str}")
 
     lines.append("")
-    lines.append(f"  Total sleep avg: {format_hours_minutes(details.get('avg_total_sleep'))}")
-    lines.append(f"  Deep sleep avg:  {format_hours_minutes(details.get('avg_deep'))}")
-    lines.append(f"  REM avg:         {format_hours_minutes(details.get('avg_rem'))}")
+    lines.append(f"  Duration    {format_hours_minutes(details.get('avg_total_sleep'))}")
+    lines.append(f"  Deep        {format_hours_minutes(details.get('avg_deep'))}")
+    lines.append(f"  REM         {format_hours_minutes(details.get('avg_rem'))}")
     eff = details.get("avg_efficiency")
-    lines.append(f"  Efficiency:      {eff:.0f}%" if eff else "  Efficiency:      —")
+    lines.append(f"  Efficiency  {eff:.0f}%" if eff else "  Efficiency  —")
 
     best = details.get("best_night")
     worst = details.get("worst_night")
+    if best or worst:
+        lines.append("")
     if best:
+        best_dt = date.fromisoformat(best)
         best_score = daily.get(best, 0)
-        lines.append(f"")
-        lines.append(f"  Best:  {best} ({best_score:.0f})")
+        lines.append(f"  ▲ Best   {DAY_ABBREVS[best_dt.weekday()]} ({best_score:.0f})")
     if worst:
+        worst_dt = date.fromisoformat(worst)
         worst_score = daily.get(worst, 0)
-        lines.append(f"  Worst: {worst} ({worst_score:.0f})")
+        lines.append(f"  ▼ Worst  {DAY_ABBREVS[worst_dt.weekday()]} ({worst_score:.0f})")
 
     insight = data.get("insights", {}).get("sleep_insight", "")
     if insight:
@@ -140,12 +183,9 @@ def render_fitness_section(data: dict) -> str:
     workouts_by_day = fitness.get("workouts_by_day", {})
     workout_days = fitness.get("workout_days", 0)
 
-    lines = [
-        "",
-        "🚶 STEPS",
-        "─" * 53,
-        f"  Avg steps:       {fitness.get('avg_steps', 0):,.0f} / day",
-    ]
+    lines = _section_header("🚶", "STEPS & FITNESS")
+
+    lines.append(f"  Daily avg  {fitness.get('avg_steps', 0):,.0f} steps")
 
     # Steps by day
     day_headers = []
@@ -156,18 +196,16 @@ def render_fitness_section(data: dict) -> str:
         s = steps_by_day.get(d)
         day_steps.append(f"{format_steps(s):>5s}")
 
+    lines.append("")
     lines.append("  " + "".join(day_headers))
     lines.append("  " + "".join(day_steps))
 
-    # Workouts section
+    # Workouts
     lines.append("")
-    lines.append("🏋️ WORKOUTS")
-    lines.append("─" * 53)
-    lines.append(f"  Workout days:    {workout_days} / 7")
-    lines.append(f"  Total calories:  {fitness.get('total_calories', 0):,.0f} kcal")
+    lines.append(f"  🏋️ Workouts: {workout_days}/7 days"
+                 f"  •  {fitness.get('total_calories', 0):,.0f} kcal")
 
     if workouts_by_day:
-        # Show day-by-day workout grid
         lines.append("")
         best_day_cal = 0
         best_day_name = None
@@ -176,23 +214,23 @@ def render_fitness_section(data: dict) -> str:
             day_name = DAY_ABBREVS[dt.weekday()]
             day_workouts = workouts_by_day.get(d)
             if not day_workouts:
-                lines.append(f"  {day_name}  —")
+                lines.append(f"  {day_name}  ·")
             else:
                 day_cal = sum(w["calories"] for w in day_workouts)
-                names = [f"{w['name']} ({w['duration']:.0f}m)" for w in day_workouts]
+                names = ", ".join(f"{w['name']} ({w['duration']:.0f}m)" for w in day_workouts)
                 hrs = [w.get("avg_hr") for w in day_workouts if w.get("avg_hr")]
-                hr_str = f"  avg HR {sum(hrs)/len(hrs):.0f}" if hrs else ""
-                lines.append(f"  {day_name}  {' + '.join(names)} — {day_cal:.0f} cal{hr_str}")
+                hr_str = f"  HR {sum(hrs)/len(hrs):.0f}" if hrs else ""
+                lines.append(f"  {day_name}  {names}")
+                lines.append(f"       {day_cal:.0f} cal{hr_str}")
                 if day_cal > best_day_cal:
                     best_day_cal = day_cal
                     best_day_name = day_name
 
         if best_day_name:
-            lines.append(f"")
-            lines.append(f"  🏆 Best day: {best_day_name} — {best_day_cal:.0f} cal burned")
+            lines.append("")
+            lines.append(f"  ⭐ Best: {best_day_name} — {best_day_cal:.0f} cal")
     else:
-        lines.append("")
-        lines.append("  Rest week — 0 workouts")
+        lines.append("  Rest week — no workouts logged")
 
     return "\n".join(lines)
 
@@ -205,11 +243,7 @@ def render_recovery_section(data: dict) -> str:
         return ""
 
     dates = sorted(daily.keys())
-    lines = [
-        "",
-        "❤️ RECOVERY",
-        "─" * 53,
-    ]
+    lines = _section_header("❤️", "RECOVERY")
 
     day_headers = []
     day_scores = []
@@ -220,8 +254,11 @@ def render_recovery_section(data: dict) -> str:
         day_scores.append(f"{score:4.0f}" if score is not None else "   —")
 
     lines.append("  " + " ".join(day_headers))
+    lines.append("  " + " ".join(day_scores))
+
     avg = recovery.get("avg_score")
-    lines.append("  " + " ".join(day_scores) + (f"    avg: {avg:.0f}" if avg else ""))
+    if avg:
+        lines.append(f"  {'':>28s}avg {avg:.0f}")
 
     lines.append("")
     rhr = recovery.get("rhr_avg")
@@ -231,17 +268,22 @@ def render_recovery_section(data: dict) -> str:
     baselines = data.get("baselines", {})
 
     if rhr:
-        lines.append(f"  Resting HR:   {rhr:.0f} bpm (30-day avg: {baselines.get('rhr_avg', '?')})")
+        bl = baselines.get('rhr_avg')
+        bl_str = f"  (30d: {bl:.0f})" if bl else ""
+        lines.append(f"  Resting HR   {rhr:.0f} bpm{bl_str}")
     if hrv:
-        lines.append(f"  HRV:          {hrv:.0f} ms  (30-day avg: {baselines.get('hrv_avg', '?')})")
+        bl = baselines.get('hrv_avg')
+        bl_str = f"  (30d: {bl:.0f})" if bl else ""
+        lines.append(f"  HRV          {hrv:.0f} ms{bl_str}")
     if resp:
-        lines.append(f"  Resp rate:    {resp:.1f} /min")
+        lines.append(f"  Resp rate    {resp:.1f} /min")
     if walk:
-        lines.append(f"  Walking HR:   {walk:.0f} bpm")
+        lines.append(f"  Walking HR   {walk:.0f} bpm")
 
     verdict = recovery.get("verdict", "STEADY")
+    verdict_emoji = {"PUSH IT": "🟢", "MAINTAIN": "🔵", "STEADY": "🔵", "REST": "🔴"}.get(verdict, "⚪")
     lines.append("")
-    lines.append(f"  Recovery verdict: {verdict}")
+    lines.append(f"  {verdict_emoji} Verdict: {verdict}")
 
     return "\n".join(lines)
 
@@ -251,16 +293,12 @@ def render_consistency_section(data: dict) -> str:
     if c.get("score") is None:
         return ""
 
-    lines = [
-        "",
-        "📊 CONSISTENCY",
-        "─" * 53,
-    ]
+    lines = _section_header("📊", "CONSISTENCY")
 
-    lines.append(f"  Bedtime consistency:  ±{c.get('bedtime_std_min', 0):.0f} min")
-    lines.append(f"  Step consistency:     CV {c.get('step_cv', 0):.0f}%")
-    lines.append(f"  Workout regularity:   {c.get('workout_count', 0)} days")
-    lines.append(f"  Sleep duration range: {format_hours_minutes(c.get('sleep_range_hours'))}")
+    lines.append(f"  Bedtime spread    ±{c.get('bedtime_std_min', 0):.0f} min")
+    lines.append(f"  Step variability  CV {c.get('step_cv', 0):.0f}%")
+    lines.append(f"  Workout days      {c.get('workout_count', 0)}/7")
+    lines.append(f"  Sleep range       {format_hours_minutes(c.get('sleep_range_hours'))}")
 
     return "\n".join(lines)
 
@@ -272,26 +310,22 @@ def render_cardio_section(data: dict) -> str:
     if cardio.get("rhr_avg") is None:
         return ""
 
-    lines = [
-        "",
-        "🫀 CARDIO HEALTH",
-        "─" * 53,
-    ]
+    lines = _section_header("🫀", "CARDIO")
 
     rhr_trend = cardio.get("rhr_trend", 0)
-    rhr_dir = "↓ (good)" if rhr_trend < -0.1 else ("↑ (watch)" if rhr_trend > 0.1 else "stable")
-    lines.append(f"  Resting HR:    {cardio['rhr_avg']:.0f} bpm — trending {rhr_dir}")
+    rhr_dir = "↓ good" if rhr_trend < -0.1 else ("↑ watch" if rhr_trend > 0.1 else "stable")
+    lines.append(f"  Resting HR   {cardio['rhr_avg']:.0f} bpm  ({rhr_dir})")
 
     if cardio.get("walk_hr_avg"):
-        lines.append(f"  Walking HR:    {cardio['walk_hr_avg']:.0f} bpm")
+        lines.append(f"  Walking HR   {cardio['walk_hr_avg']:.0f} bpm")
 
     hrv_trend = cardio.get("hrv_trend", 0)
-    hrv_dir = "↑ (good)" if hrv_trend > 0.1 else ("↓ (watch)" if hrv_trend < -0.1 else "stable")
+    hrv_dir = "↑ good" if hrv_trend > 0.1 else ("↓ watch" if hrv_trend < -0.1 else "stable")
     if cardio.get("hrv_avg"):
-        lines.append(f"  HRV trend:     {hrv_dir}")
+        lines.append(f"  HRV trend    {hrv_dir}")
 
     if cardio.get("resp_avg"):
-        lines.append(f"  Resp rate:     {cardio['resp_avg']:.1f} /min")
+        lines.append(f"  Resp rate    {cardio['resp_avg']:.1f} /min")
 
     return "\n".join(lines)
 
@@ -301,15 +335,12 @@ def render_correlations_section(data: dict) -> str:
     if not corr:
         return ""
 
-    lines = [
-        "",
-        "🔗 CORRELATIONS & PATTERNS",
-        "─" * 53,
-    ]
+    lines = _section_header("🔗", "PATTERNS")
 
     ws = corr.get("workout_sleep", {})
     if ws.get("significant"):
-        lines.append(f"  • Workout days → {ws['difference_min']:.0f} min more deep sleep on average")
+        lines.append(f"  • Workout days → +{ws['difference_min']:.0f}m"
+                     f" deep sleep")
 
     bs = corr.get("bedtime_sleep", {})
     if bs:
@@ -318,17 +349,20 @@ def render_correlations_section(data: dict) -> str:
         if before.get("count", 0) >= 3 and after.get("count", 0) >= 3:
             diff = before["avg_score"] - after["avg_score"]
             if diff > 10:
-                lines.append(f"  • Bedtime before midnight → sleep score {diff:.0f} points higher")
+                lines.append(f"  • Early bedtime → +{diff:.0f}pt"
+                             f" sleep score")
 
     dow = corr.get("day_of_week", {})
     if dow.get("best_day") and dow.get("worst_day"):
-        lines.append("")
-        lines.append("  📅 Day-of-week fingerprint:")
-        lines.append(f"  Best sleep day:    {dow['best_day']} (avg {dow['averages'].get(dow['best_day'], '?')})")
-        lines.append(f"  Worst sleep day:   {dow['worst_day']} (avg {dow['averages'].get(dow['worst_day'], '?')})")
+        best = dow['best_day']
+        worst = dow['worst_day']
+        b_avg = dow['averages'].get(best, '?')
+        w_avg = dow['averages'].get(worst, '?')
+        lines.append(f"  • Best sleep: {best} (avg {b_avg})"
+                     f"  Worst: {worst} (avg {w_avg})")
 
     if len(lines) <= 3:
-        return ""  # No meaningful correlations to show
+        return ""
 
     return "\n".join(lines)
 
@@ -340,20 +374,17 @@ def render_anomalies_section(data: dict) -> str:
     if baselines.get("history_days", 0) < 14:
         return ""
 
-    lines = [
-        "",
-        "⚠️ ANOMALIES",
-        "─" * 53,
-    ]
+    lines = _section_header("⚠️", "ANOMALIES")
 
     if not anomalies:
-        lines.append("  None this week. All metrics within normal range. ✓")
+        lines.append("  All clear — metrics in normal range ✓")
     else:
         for a in anomalies:
             metric_label = a["metric"].replace("_", " ").title()
             lines.append(
-                f"  {metric_label}: {a['deviation']} std devs from baseline "
-                f"for {a['days']} consecutive days (baseline: {a['baseline_avg']:.1f})"
+                f"  {metric_label}: {a['deviation']} σ from"
+                f" baseline ({a['baseline_avg']:.1f})"
+                f" for {a['days']} days"
             )
 
     return "\n".join(lines)
@@ -362,11 +393,7 @@ def render_anomalies_section(data: dict) -> str:
 def render_focus_section(data: dict) -> str:
     focus = data.get("insights", {}).get("weekly_focus", "")
 
-    lines = [
-        "",
-        "🎯 THIS WEEK'S FOCUS",
-        "─" * 53,
-    ]
+    lines = _section_header("🎯", "THIS WEEK'S FOCUS")
 
     if focus:
         for line in focus.split("\n"):
@@ -384,20 +411,19 @@ def render_records_section(data: dict) -> str:
     if not this_week:
         return ""
 
-    lines = [
-        "",
-        "═" * 53,
-        "📈 Personal Records",
-    ]
+    lines = ["", "  ┌─────────────────────────────────────┐"]
+    lines.append("  │  📈  NEW PERSONAL RECORDS           │")
+    lines.append("  ├─────────────────────────────────────┤")
 
     for key, val in this_week.items():
         label = key.replace("_", " ").title()
         if isinstance(val, float):
-            lines.append(f"  • {label}: {val:.1f}")
+            entry = f"  │  • {label}: {val:.1f}"
         else:
-            lines.append(f"  • {label}: {val}")
+            entry = f"  │  • {label}: {val}"
+        lines.append(f"{entry:<40s}│")
 
-    lines.append("═" * 53)
+    lines.append("  └─────────────────────────────────────┘")
     return "\n".join(lines)
 
 
@@ -410,13 +436,26 @@ def render_full_email(data: dict, prior_week: dict | None = None) -> tuple[str, 
     fitness_score = data.get("fitness", {}).get("score", 0) or 0
     recovery_score = data.get("recovery", {}).get("avg_score", 0) or 0
 
-    subject = f"HealthForge — Week of {week_start} to {week_end} | Sleep {sleep_score:.0f} Fitness {fitness_score:.0f} Recovery {recovery_score:.0f}"
+    overall = data.get("overall", {})
+    grade = overall.get("grade", "?")
+
+    date_range = _fmt_date_range(week_start, week_end)
+
+    subject = (f"Your week: {grade} overall"
+               f" — Sleep {sleep_score:.0f}"
+               f" / Fitness {fitness_score:.0f}"
+               f" / Recovery {recovery_score:.0f}")
+
+    # Build body
+    greeting = _greeting_for_date(week_start)
+
+    header = [
+        f"Hey! {greeting}",
+        f"{date_range}",
+        "",
+    ]
 
     sections = [
-        "═" * 53,
-        f"  HEALTHFORGE — Week of {week_start} to {week_end}",
-        "═" * 53,
-        "",
         render_weekly_scores(data, prior_week),
         render_sleep_section(data),
         render_fitness_section(data),
@@ -429,10 +468,19 @@ def render_full_email(data: dict, prior_week: dict | None = None) -> tuple[str, 
         render_records_section(data),
     ]
 
-    # Filter out empty sections
-    body = "\n".join(s for s in sections if s)
+    footer = [
+        "",
+        "─" * 44,
+        "Stay consistent. Small wins compound.",
+        "— HealthForge",
+    ]
+
+    parts = header + [s for s in sections if s] + footer
+
+    body = "\n".join(parts)
 
     if data.get("limited_data"):
-        body = "⚠️ Limited data this week — scores may not be representative.\n\n" + body
+        body = ("⚠️ Limited data this week —"
+                " scores may not be representative.\n\n" + body)
 
     return subject, body
