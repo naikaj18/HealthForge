@@ -245,6 +245,21 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
         baselines=baselines,
     )
 
+    # Group workouts by day
+    workouts_by_day = {}
+    for w in workouts:
+        d = w["date"]
+        wdata = decimal_to_float(w["data"])
+        entry = {
+            "name": wdata.get("name", "Unknown"),
+            "duration": round(_num(wdata.get("duration", 0)) / 60, 0),
+            "calories": round(_num(wdata.get("activeEnergyBurned", wdata.get("totalEnergyBurned", 0))) / 4.184, 0),
+            "avg_hr": _num(wdata.get("avgHeartRate")) or None,
+        }
+        workouts_by_day.setdefault(d, []).append(entry)
+
+    workout_days = len(workouts_by_day)
+
     result["fitness"] = {
         "score": fitness_score,
         "active_days": active_days,
@@ -252,16 +267,8 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
         "avg_steps": round(_safe_avg(step_list), 0) if step_list else 0,
         "avg_exercise_min": round(_safe_avg(list(exercise_by_date.values())), 0) if exercise_by_date else 0,
         "steps_by_day": {d: steps_by_date.get(d) for d in week_dates},
-        "workouts": [
-            {
-                "date": w["date"],
-                "name": decimal_to_float(w["data"]).get("name", "Unknown"),
-                "duration": round(_num(decimal_to_float(w["data"]).get("duration", 0)) / 60, 0),  # seconds → minutes
-                "calories": round(_num(decimal_to_float(w["data"]).get("activeEnergyBurned", decimal_to_float(w["data"]).get("totalEnergyBurned", 0))) / 4.184, 0),  # kJ → kcal
-                "avg_hr": _num(decimal_to_float(w["data"]).get("avgHeartRate")) or None,
-            }
-            for w in workouts
-        ],
+        "workouts_by_day": workouts_by_day,
+        "workout_days": workout_days,
     }
 
     # --- Recovery scores per day ---
@@ -320,7 +327,7 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
         bedtime_std_min=bedtime_std_min,
         sleep_range_hours=sleep_range,
         step_cv=step_cv,
-        workout_count=len(workouts),
+        workout_count=workout_days,
     )
 
     result["consistency"] = {

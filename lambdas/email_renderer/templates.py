@@ -136,19 +136,18 @@ def render_fitness_section(data: dict) -> str:
     if not steps_by_day:
         return ""
 
+    dates = sorted(steps_by_day.keys())
+    workouts_by_day = fitness.get("workouts_by_day", {})
+    workout_days = fitness.get("workout_days", 0)
+
     lines = [
         "",
-        "🏃 FITNESS",
+        "🚶 STEPS",
         "─" * 53,
+        f"  Avg steps:       {fitness.get('avg_steps', 0):,.0f} / day",
     ]
 
-    lines.append(f"  Active days:     {fitness.get('active_days', 0)} / 7")
-    lines.append(f"  Total calories:  {fitness.get('total_calories', 0):,.0f} kcal")
-    lines.append(f"  Avg steps:       {fitness.get('avg_steps', 0):,.0f} / day")
-    lines.append(f"  Exercise time:   {fitness.get('avg_exercise_min', 0):.0f} min / day avg")
-
     # Steps by day
-    dates = sorted(steps_by_day.keys())
     day_headers = []
     day_steps = []
     for d in dates:
@@ -157,27 +156,40 @@ def render_fitness_section(data: dict) -> str:
         s = steps_by_day.get(d)
         day_steps.append(f"{format_steps(s):>5s}")
 
-    lines.append("")
-    lines.append("  Steps by day:")
     lines.append("  " + "".join(day_headers))
     lines.append("  " + "".join(day_steps))
 
-    # Workouts
-    workouts = fitness.get("workouts", [])
-    if workouts:
+    # Workouts section
+    lines.append("")
+    lines.append("🏋️ WORKOUTS")
+    lines.append("─" * 53)
+    lines.append(f"  Workout days:    {workout_days} / 7")
+    lines.append(f"  Total calories:  {fitness.get('total_calories', 0):,.0f} kcal")
+
+    if workouts_by_day:
+        # Show day-by-day workout grid
         lines.append("")
-        lines.append("  Workouts this week:")
-        best_cal = 0
-        best_workout = None
-        for w in workouts:
-            hr_str = f", avg HR {w['avg_hr']:.0f}" if w.get("avg_hr") else ""
-            lines.append(f"  • {w['date']} — {w['name']}, {w['duration']:.0f} min, {w['calories']:.0f} cal{hr_str}")
-            if w["calories"] > best_cal:
-                best_cal = w["calories"]
-                best_workout = w
-        if best_workout:
+        best_day_cal = 0
+        best_day_name = None
+        for d in dates:
+            dt = date.fromisoformat(d)
+            day_name = DAY_ABBREVS[dt.weekday()]
+            day_workouts = workouts_by_day.get(d)
+            if not day_workouts:
+                lines.append(f"  {day_name}  —")
+            else:
+                day_cal = sum(w["calories"] for w in day_workouts)
+                names = [f"{w['name']} ({w['duration']:.0f}m)" for w in day_workouts]
+                hrs = [w.get("avg_hr") for w in day_workouts if w.get("avg_hr")]
+                hr_str = f"  avg HR {sum(hrs)/len(hrs):.0f}" if hrs else ""
+                lines.append(f"  {day_name}  {' + '.join(names)} — {day_cal:.0f} cal{hr_str}")
+                if day_cal > best_day_cal:
+                    best_day_cal = day_cal
+                    best_day_name = day_name
+
+        if best_day_name:
             lines.append(f"")
-            lines.append(f"  🏆 Top session: {best_workout['name']} — {best_cal:.0f} cal burned")
+            lines.append(f"  🏆 Best day: {best_day_name} — {best_day_cal:.0f} cal burned")
     else:
         lines.append("")
         lines.append("  Rest week — 0 workouts")
@@ -247,7 +259,7 @@ def render_consistency_section(data: dict) -> str:
 
     lines.append(f"  Bedtime consistency:  ±{c.get('bedtime_std_min', 0):.0f} min")
     lines.append(f"  Step consistency:     CV {c.get('step_cv', 0):.0f}%")
-    lines.append(f"  Workout regularity:   {c.get('workout_count', 0)} sessions")
+    lines.append(f"  Workout regularity:   {c.get('workout_count', 0)} days")
     lines.append(f"  Sleep duration range: {format_hours_minutes(c.get('sleep_range_hours'))}")
 
     return "\n".join(lines)
