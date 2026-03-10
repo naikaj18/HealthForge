@@ -7,10 +7,7 @@ from decimal import Decimal
 
 import boto3
 
-# Import shared utilities — Lambda layer or bundled
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "shared"))
-
+# Shared utilities come from Lambda Layer (or PYTHONPATH locally)
 from db import query_metric_range, query_all_metrics_for_week, decimal_to_float, METRICS
 from dates import get_week_range, parse_time_from_date_str
 from scores import (

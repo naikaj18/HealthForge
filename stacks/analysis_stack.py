@@ -34,6 +34,18 @@ class AnalysisStack(Stack):
             self, "/healthforge/recipient-email"
         )
 
+        # Lambda Layer for shared utilities (dates, db, scores, etc.)
+        # Layer structure: python/ dir with all shared modules
+        # Built by: cp lambdas/shared/*.py lambdas/shared_layer/python/
+        shared_layer = _lambda.LayerVersion(
+            self,
+            "SharedLayer",
+            layer_version_name="HealthForge-Shared",
+            code=_lambda.Code.from_asset("lambdas/shared_layer"),
+            compatible_runtimes=[_lambda.Runtime.PYTHON_3_12],
+            description="Shared utilities for HealthForge analysis lambdas",
+        )
+
         # --- Lambda: Aggregation ---
         aggregation_fn = _lambda.Function(
             self,
@@ -42,6 +54,7 @@ class AnalysisStack(Stack):
             runtime=_lambda.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
             code=_lambda.Code.from_asset("lambdas/aggregation"),
+            layers=[shared_layer],
             timeout=Duration.seconds(120),
             memory_size=512,
             environment={
