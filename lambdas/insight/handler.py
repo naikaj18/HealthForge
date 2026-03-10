@@ -4,16 +4,34 @@ import os
 import urllib.request
 import urllib.error
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_API_KEY_PARAM = os.environ.get("GEMINI_API_KEY_PARAM", "/healthforge/gemini-api-key")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+
+_cached_api_key = None
+
+
+def _get_api_key() -> str:
+    """Fetch Gemini API key from SSM (cached after first call)."""
+    global _cached_api_key
+    if _cached_api_key is not None:
+        return _cached_api_key
+    try:
+        import boto3
+        ssm = boto3.client("ssm", region_name=os.environ.get("AWS_REGION", "us-east-1"))
+        resp = ssm.get_parameter(Name=GEMINI_API_KEY_PARAM, WithDecryption=True)
+        _cached_api_key = resp["Parameter"]["Value"]
+    except Exception:
+        _cached_api_key = os.environ.get("GEMINI_API_KEY", "")
+    return _cached_api_key
 
 
 def call_gemini(prompt: str) -> str:
     """Call Gemini Flash API. Returns generated text or fallback."""
-    if not GEMINI_API_KEY:
+    api_key = _get_api_key()
+    if not api_key:
         return ""
 
-    url = f"{GEMINI_URL}?key={GEMINI_API_KEY}"
+    url = f"{GEMINI_URL}?key={api_key}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": 150, "temperature": 0.7},

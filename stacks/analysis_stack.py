@@ -75,9 +75,10 @@ class AnalysisStack(Stack):
             timeout=Duration.seconds(30),
             memory_size=128,
             environment={
-                "GEMINI_API_KEY": gemini_key_param.string_value,
+                "GEMINI_API_KEY_PARAM": "/healthforge/gemini-api-key",
             },
         )
+        gemini_key_param.grant_read(insight_fn)
 
         # --- Lambda: Email Renderer ---
         email_fn = _lambda.Function(
