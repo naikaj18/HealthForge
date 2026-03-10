@@ -45,6 +45,15 @@ def _safe_std(values: list[float]) -> float | None:
     return round(statistics.stdev(values), 2) if len(values) >= 2 else None
 
 
+def _num(val) -> float:
+    """Extract a number from a value that might be a dict like {"qty": 123, "units": "kJ"}."""
+    if val is None:
+        return 0.0
+    if isinstance(val, dict):
+        return float(val.get("qty", 0))
+    return float(val)
+
+
 def _extract_qty(items: list[dict]) -> dict[str, float]:
     """Extract {date: qty} from metric items."""
     result = {}
@@ -248,8 +257,8 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
                 "date": w["date"],
                 "name": decimal_to_float(w["data"]).get("name", "Unknown"),
                 "duration": decimal_to_float(w["data"]).get("duration", 0),
-                "calories": round(float(decimal_to_float(w["data"]).get("activeEnergyBurned", decimal_to_float(w["data"]).get("totalEnergyBurned", 0))), 0),
-                "avg_hr": decimal_to_float(w["data"]).get("avgHeartRate", {}).get("qty"),
+                "calories": round(_num(decimal_to_float(w["data"]).get("activeEnergyBurned", decimal_to_float(w["data"]).get("totalEnergyBurned", 0))), 0),
+                "avg_hr": _num(decimal_to_float(w["data"]).get("avgHeartRate")) or None,
             }
             for w in workouts
         ],
