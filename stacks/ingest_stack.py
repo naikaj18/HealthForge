@@ -73,6 +73,7 @@ class IngestStack(Stack):
         ingest_resource.add_method(
             "POST",
             apigw.LambdaIntegration(webhook_fn),
+            api_key_required=True,
         )
 
         # POST /upload — manual XML export (placeholder for now)
@@ -80,4 +81,20 @@ class IngestStack(Stack):
         upload_resource.add_method(
             "POST",
             apigw.LambdaIntegration(webhook_fn),
+            api_key_required=True,
         )
+
+        # --- API Key & Usage Plan ---
+        api_key = api.add_api_key("HealthForgeApiKey",
+            api_key_name="HealthForge-IngestKey",
+        )
+
+        usage_plan = api.add_usage_plan("HealthForgeUsagePlan",
+            name="HealthForge-UsagePlan",
+            throttle=apigw.ThrottleSettings(
+                rate_limit=10,
+                burst_limit=20,
+            ),
+        )
+        usage_plan.add_api_stage(stage=api.deployment_stage)
+        usage_plan.add_api_key(api_key)

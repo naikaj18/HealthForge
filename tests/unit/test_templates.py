@@ -10,7 +10,7 @@ from lambdas.email_renderer.templates import (
 
 def test_render_score_bar():
     bar = render_score_bar(75)
-    assert "███" in bar
+    assert "▓" in bar
     assert "░" in bar
 
 
@@ -27,7 +27,7 @@ def test_format_hours_minutes():
 
 def test_format_steps():
     assert format_steps(8423) == "8.4k"
-    assert format_steps(12000) == "12.0k"
+    assert format_steps(12000) == "12k"
     assert format_steps(None) == "—"
 
 
@@ -73,4 +73,4 @@ def test_render_sleep_section_missing_days():
     }
     text = render_sleep_section(data)
     assert "—" in text  # Missing days shown as dash
-    assert "5 of 7" in text
+    assert "(5/7 nights)" in text

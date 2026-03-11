@@ -24,6 +24,7 @@ class DataStack(Stack):
                 name="SK", type=dynamodb.AttributeType.STRING
             ),
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+            point_in_time_recovery=True,
             removal_policy=RemovalPolicy.RETAIN,
         )
 

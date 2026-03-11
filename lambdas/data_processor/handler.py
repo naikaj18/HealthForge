@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
@@ -74,7 +74,7 @@ def build_item(user_id: str, metric_name: str, date: str, data_point: dict) -> d
         "metric": metric_name,
         "date": date,
         "data": convert_floats(data_point),
-        "ingested_at": datetime.utcnow().isoformat(),
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
@@ -112,7 +112,7 @@ def build_workout_item(user_id: str, date: str, workout: dict) -> dict:
         "metric": "workout",
         "date": date,
         "data": convert_floats(slim_workout(workout)),
-        "ingested_at": datetime.utcnow().isoformat(),
+        "ingested_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

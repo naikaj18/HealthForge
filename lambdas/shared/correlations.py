@@ -147,8 +147,10 @@ def compute_bedtime_sleep_correlation(
     }
 
     for hour, score in data:
-        if hour >= 20 or hour < 0:  # 8 PM to midnight (normalize)
-            h = hour if hour >= 20 else hour + 24
+        if hour >= 20:  # 8 PM to midnight
+            h = hour
+        elif hour <= 8:  # Post-midnight (0-8 AM)
+            h = hour + 24
         else:
             h = hour
 

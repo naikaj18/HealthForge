@@ -9,6 +9,7 @@ from aws_cdk import (
     aws_events_targets as targets,
     aws_ssm as ssm,
     aws_iam as iam,
+    aws_logs as logs,
 )
 from constructs import Construct
 from stacks.data_stack import DataStack
@@ -57,6 +58,7 @@ class AnalysisStack(Stack):
             layers=[shared_layer],
             timeout=Duration.seconds(120),
             memory_size=512,
+            log_retention=logs.RetentionDays.TWO_WEEKS,
             environment={
                 "TABLE_NAME": data_stack.table.table_name,
                 "USER_ID": "default",
@@ -72,8 +74,9 @@ class AnalysisStack(Stack):
             runtime=_lambda.Runtime.PYTHON_3_12,
             handler="handler.lambda_handler",
             code=_lambda.Code.from_asset("lambdas/insight"),
-            timeout=Duration.seconds(30),
+            timeout=Duration.seconds(60),
             memory_size=128,
+            log_retention=logs.RetentionDays.TWO_WEEKS,
             environment={
                 "GEMINI_API_KEY_PARAM": "/healthforge/gemini-api-key",
             },
@@ -90,6 +93,7 @@ class AnalysisStack(Stack):
             code=_lambda.Code.from_asset("lambdas/email_renderer"),
             timeout=Duration.seconds(30),
             memory_size=128,
+            log_retention=logs.RetentionDays.TWO_WEEKS,
             environment={
                 "SENDER_EMAIL": sender_email,
                 "RECIPIENT_EMAIL": recipient_email,
@@ -98,7 +102,7 @@ class AnalysisStack(Stack):
         email_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["ses:SendEmail", "ses:SendRawEmail"],
-                resources=["*"],
+                resources=[f"arn:aws:ses:{self.region}:{self.account}:identity/*"],
             )
         )
 
@@ -121,6 +125,20 @@ class AnalysisStack(Stack):
             output_path="$.Payload",
         )
 
+        # Retry with exponential backoff for each step
+        for step in [aggregate_step, insight_step, email_step]:
+            step.add_retry(
+                errors=["States.TaskFailed"],
+                interval=Duration.seconds(5),
+                max_attempts=2,
+                backoff_rate=2.0,
+            )
+
+        # Catch-all error handling
+        error_state = sfn.Fail(self, "PipelineFailed", cause="Lambda execution failed", error="ExecutionError")
+        for step in [aggregate_step, insight_step, email_step]:
+            step.add_catch(error_state)
+
         # Chain: Aggregate → Check if should send → Insight → Email
         should_send = sfn.Choice(self, "ShouldSendEmail")
         skip_state = sfn.Pass(self, "SkipEmail")
@@ -139,14 +157,14 @@ class AnalysisStack(Stack):
             timeout=Duration.minutes(5),
         )
 
-        # --- EventBridge: Sunday 10 AM ---
+        # --- EventBridge: Sunday 10 AM ET (15:00 UTC, approximation for EDT) ---
         events.Rule(
             self,
             "WeeklySchedule",
             rule_name="HealthForge-WeeklyReport",
             schedule=events.Schedule.cron(
                 minute="0",
-                hour="10",
+                hour="15",
                 week_day="SUN",
             ),
             targets=[targets.SfnStateMachine(

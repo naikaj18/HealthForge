@@ -20,8 +20,10 @@ def _get_api_key() -> str:
         ssm = boto3.client("ssm", region_name=os.environ.get("AWS_REGION", "us-east-1"))
         resp = ssm.get_parameter(Name=GEMINI_API_KEY_PARAM, WithDecryption=True)
         _cached_api_key = resp["Parameter"]["Value"]
-    except Exception:
-        _cached_api_key = os.environ.get("GEMINI_API_KEY", "")
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning("Failed to fetch Gemini API key from SSM: %s", e)
+        _cached_api_key = ""
     return _cached_api_key
 
 
@@ -31,7 +33,7 @@ def call_gemini(prompt: str) -> str:
     if not api_key:
         return ""
 
-    url = f"{GEMINI_URL}?key={api_key}"
+    url = GEMINI_URL
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {"maxOutputTokens": 150, "temperature": 0.7},
@@ -40,7 +42,7 @@ def call_gemini(prompt: str) -> str:
     req = urllib.request.Request(
         url,
         data=json.dumps(payload).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
         method="POST",
     )
 

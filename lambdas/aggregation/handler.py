@@ -26,6 +26,8 @@ from correlations import (
 )
 from records import check_records
 
+KJ_TO_KCAL = 4.184
+
 TABLE_NAME = os.environ.get("TABLE_NAME", "HealthForge")
 USER_ID = os.environ.get("USER_ID", "default")
 
@@ -111,7 +113,7 @@ def compute_baselines(user_id: str, end_date: date) -> dict:
 
     # Calorie baselines
     cal_items = query_metric_range(user_id, "active_energy", start_str, end_str)
-    cal_vals = [float(i["data"].get("qty", 0)) / 4.184 for i in cal_items]
+    cal_vals = [float(i["data"].get("qty", 0)) / KJ_TO_KCAL for i in cal_items]
     if cal_vals:
         # Weekly average calories
         baselines["weekly_calories_avg"] = round(sum(cal_vals) / (len(cal_vals) / 7), 0)
@@ -120,7 +122,7 @@ def compute_baselines(user_id: str, end_date: date) -> dict:
     last_week_start = end_date - timedelta(days=14)
     last_week_end = end_date - timedelta(days=7)
     last_cal = query_metric_range(user_id, "active_energy", last_week_start.isoformat(), last_week_end.isoformat())
-    last_vals = [float(i["data"].get("qty", 0)) / 4.184 for i in last_cal]
+    last_vals = [float(i["data"].get("qty", 0)) / KJ_TO_KCAL for i in last_cal]
     baselines["last_week_calories"] = round(sum(last_vals), 0) if last_vals else 0
 
     # Data age (how many days of history we have)
@@ -143,7 +145,7 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
     week_data = query_all_metrics_for_week(user_id, sunday, saturday)
 
     # Compute baselines from 30-day history
-    baselines = compute_baselines(user_id, saturday)
+    baselines = compute_baselines(user_id, sunday - timedelta(days=1))
 
     result = {
         "week_start": sunday.isoformat(),
@@ -161,7 +163,7 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
             sleep_by_date[d] = data
 
     steps_by_date = _extract_qty(week_data.get("step_count", []))
-    calories_by_date = {d: v / 4.184 for d, v in _extract_qty(week_data.get("active_energy", [])).items()}
+    calories_by_date = {d: v / KJ_TO_KCAL for d, v in _extract_qty(week_data.get("active_energy", [])).items()}
     exercise_by_date = _extract_qty(week_data.get("apple_exercise_time", []))
     rhr_by_date = _extract_qty(week_data.get("resting_heart_rate", []))
     hrv_by_date = _extract_qty(week_data.get("heart_rate_variability", []))
@@ -208,11 +210,9 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
             "avg_total_sleep": _safe_avg(totals),
             "avg_deep": _safe_avg(deeps),
             "avg_rem": _safe_avg(rems),
-            "avg_efficiency": round(
-                statistics.mean(
-                    [t / (t + a) * 100 for t, a in zip(totals, awakes) if t + a > 0]
-                ), 1
-            ) if totals else None,
+            "avg_efficiency": (lambda eff_vals: round(statistics.mean(eff_vals), 1) if eff_vals else None)(
+                [t / (t + a) * 100 for t, a in zip(totals, awakes) if t + a > 0]
+            ),
             "best_night": max(sleep_scores, key=sleep_scores.get) if sleep_scores else None,
             "worst_night": min(sleep_scores, key=sleep_scores.get) if sleep_scores else None,
             "bedtimes": {
@@ -253,17 +253,24 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
         entry = {
             "name": wdata.get("name", "Unknown"),
             "duration": round(_num(wdata.get("duration", 0)) / 60, 0),
-            "calories": round(_num(wdata.get("activeEnergyBurned", wdata.get("totalEnergyBurned", 0))) / 4.184, 0),
+            "calories": round(_num(wdata.get("activeEnergyBurned", wdata.get("totalEnergyBurned", 0))) / KJ_TO_KCAL, 0),
             "avg_hr": _num(wdata.get("avgHeartRate")) or None,
         }
         workouts_by_day.setdefault(d, []).append(entry)
 
     workout_days = len(workouts_by_day)
 
+    # Workout-specific calories (sum from individual workouts)
+    workout_cal = sum(
+        entry["calories"]
+        for day_workouts in workouts_by_day.values()
+        for entry in day_workouts
+    )
+
     result["fitness"] = {
         "score": fitness_score,
         "active_days": active_days,
-        "total_calories": round(total_cal, 0),
+        "total_calories": round(workout_cal, 0),
         "avg_steps": round(_safe_avg(step_list), 0) if step_list else 0,
         "avg_exercise_min": round(_safe_avg(list(exercise_by_date.values())), 0) if exercise_by_date else 0,
         "steps_by_day": {d: steps_by_date.get(d) for d in week_dates},
@@ -335,7 +342,7 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
         "bedtime_std_min": round(bedtime_std_min, 0),
         "sleep_range_hours": round(sleep_range, 1),
         "step_cv": round(step_cv * 100, 1),
-        "workout_count": len(workouts),
+        "workout_count": workout_days,
     }
 
     # --- Cardio score ---

@@ -10,7 +10,7 @@ which is necessary for large export files (>256KB).
 
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 import boto3
@@ -103,7 +103,7 @@ def main():
                 "metric": metric_name,
                 "date": date,
                 "data": convert_floats(dp),
-                "ingested_at": datetime.utcnow().isoformat(),
+                "ingested_at": datetime.now(timezone.utc).isoformat(),
             }
 
             try:
@@ -156,7 +156,7 @@ def main():
             "metric": "workout",
             "date": date,
             "data": convert_floats(slim_workout),
-            "ingested_at": datetime.utcnow().isoformat(),
+            "ingested_at": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
