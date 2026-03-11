@@ -164,7 +164,7 @@ class AnalysisStack(Stack):
             rule_name="HealthForge-WeeklyReport",
             schedule=events.Schedule.cron(
                 minute="0",
-                hour="15",
+                hour="13",  # 9 AM EDT / 8 AM EST
                 week_day="SUN",
             ),
             targets=[targets.SfnStateMachine(
