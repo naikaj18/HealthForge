@@ -142,8 +142,13 @@ Subject format: `HealthForge B â€” Sleep 85 | Fitness 58 | Recovery 92 (Mar 5 â€
 ```
 HealthForge/
   app.py                              # CDK entry point
+  cdk.json                            # CDK configuration
+  requirements.txt                    # Production dependencies
+  requirements-dev.txt                # Dev/test dependencies
+  ARCHITECTURE.md                     # Detailed architecture documentation
+  PRODUCT_BRIEF.md                    # Product specification
   stacks/
-    data_stack.py                     # DynamoDB + SQS + CloudWatch alarm
+    data_stack.py                     # DynamoDB + SQS + DLQ + CloudWatch alarm
     ingest_stack.py                   # API Gateway + webhook + processor
     analysis_stack.py                 # Step Functions + Lambdas + EventBridge + CloudWatch alarm
   lambdas/
@@ -164,8 +169,18 @@ HealthForge/
   scripts/
     build_layer.sh                    # Copies shared/ + templates.py into Lambda layer
     bulk_import.py                    # Direct DynamoDB backfill from JSON export
-  tests/
-    unit/                             # 56 unit tests
+    test_email_local.py               # Local email rendering test script
+  tests/unit/
+    test_scores.py                    # Scoring algorithm tests
+    test_correlations.py              # Anomaly detection + pattern tests
+    test_dates.py                     # Date utility tests
+    test_db.py                        # DynamoDB helper tests
+    test_records.py                   # Weekly bests tests
+    test_templates.py                 # HTML template rendering tests
+    test_email_renderer.py            # Full email render + subject line tests
+    test_webhook_receiver.py          # Webhook validation tests
+    test_data_processor.py            # Data processor tests
+    test_insight.py                   # Gemini insight handler tests
 ```
 
 ## Setup
