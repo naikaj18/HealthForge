@@ -53,6 +53,11 @@ def _num(val) -> float:
         return 0.0
     if isinstance(val, dict):
         return float(val.get("qty", 0))
+    if isinstance(val, str):
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return 0.0
     return float(val)
 
 
@@ -84,9 +89,11 @@ def compute_baselines(user_id: str, end_date: date) -> dict:
     end_str = end_date.isoformat()
 
     baselines = {}
+    all_dates = set()  # Track unique dates across all queries for history_days
 
     # Sleep baselines
     sleep_items = query_metric_range(user_id, "sleep_analysis", start_str, end_str)
+    all_dates.update(i.get("date") for i in sleep_items)
     if sleep_items:
         totals = [float(i["data"].get("totalSleep", 0)) for i in sleep_items if float(i["data"].get("totalSleep", 0)) >= 2]
         deeps = [float(i["data"].get("deep", 0)) for i in sleep_items if i["data"].get("deep") is not None]
@@ -106,6 +113,7 @@ def compute_baselines(user_id: str, end_date: date) -> dict:
     # Simple metric baselines (qty-based)
     for metric in ["resting_heart_rate", "heart_rate_variability", "walking_heart_rate_average", "respiratory_rate"]:
         items = query_metric_range(user_id, metric, start_str, end_str)
+        all_dates.update(i.get("date") for i in items)
         vals = [float(i["data"].get("qty", 0)) for i in items if i["data"].get("qty") is not None]
         short = metric.replace("heart_rate_variability", "hrv").replace("resting_heart_rate", "rhr").replace("walking_heart_rate_average", "walking_hr").replace("respiratory_rate", "resp")
         baselines[f"{short}_avg"] = _safe_avg(vals)
@@ -113,6 +121,7 @@ def compute_baselines(user_id: str, end_date: date) -> dict:
 
     # Calorie baselines
     cal_items = query_metric_range(user_id, "active_energy", start_str, end_str)
+    all_dates.update(i.get("date") for i in cal_items)
     cal_vals = [float(i["data"].get("qty", 0)) / KJ_TO_KCAL for i in cal_items]
     if cal_vals:
         # Weekly average calories
@@ -126,11 +135,7 @@ def compute_baselines(user_id: str, end_date: date) -> dict:
     baselines["last_week_calories"] = round(sum(last_vals), 0) if last_vals else 0
 
     # Data age (how many days of history we have)
-    all_dates = set()
-    for metric in METRICS:
-        items = query_metric_range(user_id, metric, start_str, end_str)
-        for i in items:
-            all_dates.add(i.get("date"))
+    all_dates.discard(None)
     baselines["history_days"] = len(all_dates)
 
     return baselines
@@ -454,9 +459,7 @@ def aggregate_week(user_id: str, ref_date: date) -> dict:
         if dow_sleep:
             result["correlations"]["day_of_week"] = compute_day_of_week_fingerprint(dow_sleep)
 
-    # --- Personal records ---
-    # TODO: Load current records from DynamoDB RECORD# items
-    # For now, compute from this week's data
+    # --- This week's bests ---
     this_week_records = {}
     if sleep_scores:
         this_week_records["best_sleep_score"] = max(sleep_scores.values())

@@ -18,18 +18,21 @@ def lambda_handler(event, context):
     if not event.get("send_email", True):
         return {"status": "skipped", "reason": event.get("skip_reason", "No data")}
 
-    subject, body = render_full_email(event, prior_week=None)
+    subject, html_body, text_body = render_full_email(event, prior_week=None)
 
     if not SENDER_EMAIL or not RECIPIENT_EMAIL:
         # Local testing mode — just return the email
-        return {"status": "rendered", "subject": subject, "body": body}
+        return {"status": "rendered", "subject": subject, "body": html_body}
 
     ses.send_email(
         Source=SENDER_EMAIL,
         Destination={"ToAddresses": [RECIPIENT_EMAIL]},
         Message={
             "Subject": {"Data": subject, "Charset": "UTF-8"},
-            "Body": {"Text": {"Data": body, "Charset": "UTF-8"}},
+            "Body": {
+                "Html": {"Data": html_body, "Charset": "UTF-8"},
+                "Text": {"Data": text_body, "Charset": "UTF-8"},
+            },
         },
     )
 

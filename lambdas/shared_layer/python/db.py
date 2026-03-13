@@ -27,16 +27,23 @@ def query_metric_range(
     user_id: str, metric: str, start_date: str, end_date: str
 ) -> list[dict]:
     """Query a single metric type for a date range using GSI1."""
-    resp = table.query(
-        IndexName="GSI1",
-        KeyConditionExpression="GSI1PK = :pk AND GSI1SK BETWEEN :start AND :end",
-        ExpressionAttributeValues={
+    items = []
+    kwargs = {
+        "IndexName": "GSI1",
+        "KeyConditionExpression": "GSI1PK = :pk AND GSI1SK BETWEEN :start AND :end",
+        "ExpressionAttributeValues": {
             ":pk": f"USER#{user_id}#METRIC#{metric}",
             ":start": start_date,
             ":end": end_date,
         },
-    )
-    return resp.get("Items", [])
+    }
+    while True:
+        resp = table.query(**kwargs)
+        items.extend(resp.get("Items", []))
+        if "LastEvaluatedKey" not in resp:
+            break
+        kwargs["ExclusiveStartKey"] = resp["LastEvaluatedKey"]
+    return items
 
 
 def query_all_metrics_for_week(

@@ -9,11 +9,20 @@ which is necessary for large export files (>256KB).
 """
 
 import json
+import os
 import sys
-from datetime import datetime, timezone
-from decimal import Decimal
+
+# Ensure project root is on the path so we can import from lambdas
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import boto3
+
+from lambdas.data_processor.handler import (
+    METRIC_ALIASES,
+    build_item,
+    build_workout_item,
+    parse_date,
+)
 
 TABLE_NAME = "HealthForge"
 REGION = "us-east-1"
@@ -21,47 +30,6 @@ USER_ID = "default"
 
 dynamodb = boto3.resource("dynamodb", region_name=REGION)
 table = dynamodb.Table(TABLE_NAME)
-
-METRIC_ALIASES = {
-    "sleep_analysis": "sleep_analysis",
-    "step_count": "step_count",
-    "active_energy": "active_energy",
-    "active_energy_burned": "active_energy",
-    "apple_exercise_time": "apple_exercise_time",
-    "resting_heart_rate": "resting_heart_rate",
-    "heart_rate_variability": "heart_rate_variability",
-    "walking_heart_rate_average": "walking_heart_rate_average",
-    "vo2_max": "vo2_max",
-    "respiratory_rate": "respiratory_rate",
-}
-
-
-def parse_date(date_str: str) -> str:
-    clean = date_str.strip()
-    for sep in (" -", " +"):
-        idx = clean.rfind(sep)
-        if idx > 10:
-            tz_part = clean[idx + 2:]
-            if tz_part.isdigit() and len(tz_part) in (4, 5):
-                clean = clean[:idx]
-                break
-
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%SZ"):
-        try:
-            return datetime.strptime(clean, fmt).strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return date_str[:10]
-
-
-def convert_floats(obj):
-    if isinstance(obj, float):
-        return Decimal(str(obj))
-    elif isinstance(obj, dict):
-        return {k: convert_floats(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_floats(i) for i in obj]
-    return obj
 
 
 def main():
@@ -95,16 +63,7 @@ def main():
                 continue
 
             date = parse_date(date_str)
-            item = {
-                "PK": f"USER#{USER_ID}",
-                "SK": f"METRIC#{metric_name}#{date}",
-                "GSI1PK": f"USER#{USER_ID}#METRIC#{metric_name}",
-                "GSI1SK": date,
-                "metric": metric_name,
-                "date": date,
-                "data": convert_floats(dp),
-                "ingested_at": datetime.now(timezone.utc).isoformat(),
-            }
+            item = build_item(USER_ID, metric_name, date, dp)
 
             try:
                 table.put_item(
@@ -117,7 +76,7 @@ def main():
 
         print(f"  {metric_name}: {len(data_points)} points")
 
-    # Process workouts — only keep essential fields to stay under 400KB limit
+    # Process workouts
     workouts = payload.get("workouts", [])
     for workout in workouts:
         date_str = workout.get("start", workout.get("date", ""))
@@ -125,39 +84,7 @@ def main():
             continue
 
         date = parse_date(date_str)
-        workout_name = workout.get("name", "unknown")
-
-        # Extract only the fields we need (raw workout data can be huge)
-        slim_workout = {
-            "name": workout_name,
-            "start": workout.get("start", ""),
-            "end": workout.get("end", ""),
-            "duration": workout.get("duration", 0),
-            "totalEnergyBurned": workout.get("totalEnergyBurned", 0),
-            "activeEnergyBurned": workout.get("activeEnergyBurned", 0),
-            "isIndoor": workout.get("isIndoor", False),
-        }
-        if "avgHeartRate" in workout:
-            slim_workout["avgHeartRate"] = workout["avgHeartRate"]
-        if "heartRate" in workout:
-            slim_workout["heartRateSummary"] = {
-                "min": workout["heartRate"].get("min"),
-                "avg": workout["heartRate"].get("avg"),
-                "max": workout["heartRate"].get("max"),
-            }
-        if "totalDistance" in workout:
-            slim_workout["totalDistance"] = workout["totalDistance"]
-
-        item = {
-            "PK": f"USER#{USER_ID}",
-            "SK": f"METRIC#workout#{date}#{workout_name}",
-            "GSI1PK": f"USER#{USER_ID}#METRIC#workout",
-            "GSI1SK": date,
-            "metric": "workout",
-            "date": date,
-            "data": convert_floats(slim_workout),
-            "ingested_at": datetime.now(timezone.utc).isoformat(),
-        }
+        item = build_workout_item(USER_ID, date, workout)
 
         try:
             table.put_item(

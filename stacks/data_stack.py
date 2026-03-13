@@ -4,6 +4,7 @@ from aws_cdk import (
     Duration,
     aws_dynamodb as dynamodb,
     aws_sqs as sqs,
+    aws_cloudwatch as cloudwatch,
 )
 from constructs import Construct
 
@@ -58,4 +59,16 @@ class DataStack(Stack):
                 max_receive_count=3,
                 queue=self.dlq,
             ),
+        )
+
+        # --- CloudWatch Alarm: DLQ messages ---
+        self.dlq.metric_approximate_number_of_messages_visible(
+            period=Duration.minutes(5),
+        ).create_alarm(
+            self,
+            "DLQAlarm",
+            alarm_name="HealthForge-DLQ-MessagesVisible",
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         )

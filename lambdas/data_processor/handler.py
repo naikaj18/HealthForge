@@ -20,7 +20,6 @@ METRIC_ALIASES = {
     "resting_heart_rate": "resting_heart_rate",
     "heart_rate_variability": "heart_rate_variability",
     "walking_heart_rate_average": "walking_heart_rate_average",
-    "vo2_max": "vo2_max",
     "respiratory_rate": "respiratory_rate",
 }
 

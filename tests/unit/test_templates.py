@@ -10,13 +10,14 @@ from lambdas.email_renderer.templates import (
 
 def test_render_score_bar():
     bar = render_score_bar(75)
-    assert "▓" in bar
-    assert "░" in bar
+    assert "<table" in bar
+    assert "75%" in bar
 
 
 def test_render_score_bar_zero():
     bar = render_score_bar(0)
-    assert "░" in bar
+    assert "<table" in bar
+    assert "0%" in bar
 
 
 def test_format_hours_minutes():
@@ -40,10 +41,13 @@ def test_render_weekly_scores():
         "cardio": {"score": 83},
         "overall": {"avg_score": 76, "grade": "B"},
     }
-    text = render_weekly_scores(data, prior_week=None)
-    assert "Sleep" in text
-    assert "Fitness" in text
-    assert "76" in text
+    html = render_weekly_scores(data, prior_week=None)
+    assert "Sleep" in html
+    assert "Fitness" in html
+    # Overall grade is in the hero header, not in scores card
+    # Check individual scores are present
+    assert ">72<" in html  # Sleep score
+    assert ">81<" in html  # Fitness score
 
 
 def test_render_sleep_section_missing_days():
@@ -71,6 +75,5 @@ def test_render_sleep_section_missing_days():
         },
         "insights": {"sleep_insight": "Test insight."},
     }
-    text = render_sleep_section(data)
-    assert "—" in text  # Missing days shown as dash
-    assert "(5/7 nights)" in text
+    html = render_sleep_section(data)
+    assert "5/7" in html

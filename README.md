@@ -1,6 +1,6 @@
 # HealthForge
 
-A serverless health analytics pipeline that turns Apple Health data into a personalized weekly email report. It computes sleep, fitness, recovery, consistency, and cardio scores, detects anomalies, finds patterns in your habits, and uses Google Gemini Flash to generate human-readable insights -- all delivered to your inbox every Sunday morning.
+A serverless health analytics pipeline that turns Apple Health data into a personalized weekly email report. It computes sleep, fitness, recovery, consistency, and cardio scores, detects anomalies, finds patterns in your habits, and uses Google Gemini Flash to generate human-readable insights -- all delivered to your inbox every Sunday morning as a rich HTML dashboard.
 
 Built entirely on AWS free tier + Gemini free tier. Costs effectively $0/month for personal use.
 
@@ -14,197 +14,128 @@ iPhone (Health Auto Export app)
                                           |
                               Step Functions Pipeline
                                           |
-                    Aggregation --> Gemini Insights --> Email (SES)
+                    Aggregation --> Gemini Insights --> HTML Email (SES)
 ```
 
 There are two independent pipelines:
 
 **Data Ingestion (continuous):** The Health Auto Export iOS app sends Apple Health data to an API Gateway webhook once a day. A Lambda validates the payload, queues it in SQS, and a processor Lambda parses, deduplicates, and writes metrics to DynamoDB.
 
-**Weekly Analysis (Sunday mornings):** EventBridge triggers a Step Functions state machine that runs three Lambdas in sequence -- aggregation (scores, baselines, anomalies, correlations), insight generation (Gemini Flash), and email rendering (SES).
+**Weekly Analysis (Sunday mornings):** EventBridge triggers a Step Functions state machine that runs three Lambdas in sequence -- aggregation (scores, baselines, anomalies, correlations), insight generation (Gemini Flash), and email rendering (SES). The pipeline includes a Choice state that skips email if no data exists for the week.
 
 ## Architecture
 
 ```
 Stacks:
-  DataStack       --> DynamoDB table (single-table design) + SQS queue + DLQ
+  DataStack       --> DynamoDB table (single-table design) + SQS queue + DLQ + CloudWatch alarm
   IngestStack     --> API Gateway (API key auth) + WebhookReceiver + DataProcessor
-  AnalysisStack   --> Aggregation + Insight + EmailRenderer + Step Functions + EventBridge
+  AnalysisStack   --> Aggregation + Insight + EmailRenderer + Step Functions + EventBridge + CloudWatch alarm
 ```
 
 **Key design decisions:**
 - Single-table DynamoDB with composite keys (`USER#id / METRIC#name#date`) and a GSI for metric-type queries
 - SQS buffering so the webhook returns 200 immediately; processing is async
 - Deduplication via `attribute_not_exists(PK)` on every write -- safe to re-sync
+- DynamoDB query pagination handled for large date ranges (30-day baselines, 90-day correlations)
 - Gemini Flash only generates text from pre-computed results (all scoring is deterministic Python)
-- No dashboard -- email-first, one report per week
+- HTML email with inline CSS for Gmail/Outlook compatibility, plus plain text fallback
+- Lambda Layer for shared code (auto-synced via `scripts/build_layer.sh`)
+- CloudWatch alarms on the DLQ and Step Functions failures
 
 ## Scoring System
 
-All scores are 0-100. The overall grade maps to A+ (95+) through D (below 55).
+All scores are 0-100, computed as weighted averages of sub-components. If a component's data is missing (e.g., no deep sleep data), its weight is redistributed to the remaining components. All comparisons are **relative to your own 30-day baselines**, not universal standards.
 
-| Score | Components |
-|-------|-----------|
-| Sleep (nightly) | Duration vs baseline, efficiency, deep sleep, REM, bedtime consistency, restfulness |
-| Fitness (weekly) | Activity days, calories vs average, step consistency, workout intensity, progressive load |
-| Recovery (daily) | Last night's sleep, resting HR vs baseline, HRV vs baseline, respiratory rate, sleep debt |
-| Consistency (weekly) | Bedtime spread, sleep duration range, step variability, workout regularity |
-| Cardio (weekly) | Resting HR trend, HRV trend, walking HR, respiratory rate |
+The overall grade is a simple average of all 5 scores, mapped to A+ (95+) through D (below 55).
+
+### Sleep Score (per night)
+
+| Component | Weight | Logic |
+|-----------|--------|-------|
+| Duration | 25% | 100 if within ±30min of your 30-day average total sleep. Degrades linearly beyond. |
+| Efficiency | 25% | `sleep_time / (sleep_time + awake_time) × 100`, used directly as the score. |
+| Deep sleep | 20% | 100 if at or above your 30-day deep sleep average. Scales linearly below. |
+| REM sleep | 15% | 100 if at or above your 30-day REM average. Scales linearly below. |
+| Bedtime consistency | 10% | Distance from your average bedtime. 100 if same time, loses 20 pts per 15 minutes off. Handles midnight wrap. |
+| Restfulness | 5% | 100 if < 15min awake. Loses 2 points per extra minute. |
+
+The weekly Sleep score shown in the report is the **average of all nightly scores**.
+
+### Fitness Score (weekly)
+
+| Component | Weight | Logic |
+|-----------|--------|-------|
+| Active days | 30% | `(days with ≥30min exercise / 7) × 100`. |
+| Calories vs average | 25% | `(this week / 30-day weekly average) × 100`, capped at 120. |
+| Step consistency | 20% | Coefficient of variation (CV) of daily steps. CV ≤ 10% = 100, CV ≥ 50% = 0. Rewards even daily activity. |
+| Workout intensity | 15% | `(avg workout HR / estimated max HR) × 100`. Max HR estimated at 190. Skipped if no workouts. |
+| Progressive load | 10% | `(this week calories / last week calories) × 100`, capped at 120. Rewards increasing effort. |
+
+### Recovery Score (daily)
+
+| Component | Weight | Logic |
+|-----------|--------|-------|
+| Last night's sleep score | 35% | Directly uses the nightly sleep score. |
+| Resting HR vs baseline | 25% | 100 if at or below 30-day average RHR. Higher = poor recovery. |
+| HRV vs baseline | 20% | 100 if at or above 30-day average HRV. Higher = better recovery. |
+| Respiratory rate vs baseline | 15% | 100 if at or below 30-day average. Elevated = stress/illness signal. |
+| Sleep debt | 5% | 100 if 7-day average sleep ≥ 7 hours. Scales linearly below. |
+
+The weekly Recovery score is the **average of all daily scores**. The verdict is: PUSH IT (80+), STEADY (60-79), or RECOVER (below 60).
+
+### Consistency Score (weekly)
+
+| Component | Weight | Logic |
+|-----------|--------|-------|
+| Bedtime spread | 35% | Std dev of bedtimes. ≤ 15min = 100, ≥ 90min = 0. Normalized around midnight. |
+| Sleep duration range | 25% | Max minus min sleep hours. ≤ 1h = 100, ≥ 5h = 0. |
+| Step variability | 20% | CV of daily steps. ≤ 10% = 100, ≥ 50% = 0. |
+| Workout regularity | 20% | 3+ workouts = 100, 2 = 66, 1 = 33, 0 = 0. |
+
+### Cardio Score (weekly)
+
+| Component | Weight | Logic |
+|-----------|--------|-------|
+| Resting HR vs baseline | 30% | 100 if at or below 30-day average. Lower = fitter. |
+| HRV vs baseline | 30% | 100 if at or above 30-day average. Higher = fitter. |
+| Walking HR vs baseline | 20% | 100 if at or below average. Lower = more efficient. |
+| RHR trend | 10% | 100 if dropping over the week, 50 if flat, 0 if rising. |
+| HRV trend | 10% | 100 if rising over the week, 50 if flat, 0 if dropping. |
+
+### Overall Grade
+
+| Score | Grade |
+|-------|-------|
+| 95+ | A+ |
+| 90-94 | A |
+| 85-89 | A- |
+| 80-84 | B+ |
+| 75-79 | B |
+| 70-74 | B- |
+| 65-69 | C+ |
+| 60-64 | C |
+| 55-59 | C- |
+| Below 55 | D |
+
+### Additional Analysis
 
 The report also includes:
-- **Baselines** -- 30-day rolling averages (excluding the current week)
-- **Anomalies** -- metrics exceeding 2 standard deviations for 2+ consecutive days
-- **Patterns** -- workout-sleep correlation, bedtime-sleep correlation, day-of-week fingerprint
-- **Personal records** -- broken or nearly broken (within 5%) all-time bests
+- **Baselines** -- 30-day rolling averages computed from data before the current week
+- **Anomalies** -- metrics exceeding 2 standard deviations for 2+ consecutive days (requires 14+ days of history)
+- **Patterns** -- workout-sleep correlation, bedtime-sleep correlation, day-of-week fingerprint (requires 28+ days of history)
+- **This week's bests** -- best sleep score, highest steps, fitness score, lowest RHR, highest HRV for the week
 
-## Example Email
+## Email Format
 
-```
-Subject: HealthForge B+ -- Sleep 78 | Fitness 81 | Recovery 72
+The email is an HTML dashboard with:
+- Dark hero header with overall grade in a colored circle
+- Color-coded score bars (green 80+, amber 60-79, red below 60)
+- Step and workout bars with daily breakdowns
+- Card-based sections for Sleep, Fitness, Recovery, Consistency, Cardio, Patterns, Anomalies
+- Gemini-generated sleep insights and weekly focus recommendations
+- Plain text fallback for non-HTML email clients
 
-Hey! Here's your week in review.
-Mar 2 – 8, 2026
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*YOUR SCORES*
-
-Sleep: 78/100 (up 4)
-░░░░░░░░░░░░░░░░░░░░
-Fitness: 81/100 (steady)
-░░░░░░░░░░░░░░░░░░░░
-Recovery: 72/100 (down 3)
-░░░░░░░░░░░░░░░░░░░░
-Consistency: 69/100
-░░░░░░░░░░░░░░░░░░░░
-Cardio: 75/100
-░░░░░░░░░░░░░░░░░░░░
-
-Overall: B+ (75/100)
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*SLEEP*
-
-Sun (03/02) -- 82
-Mon (03/03) -- 71
-Tue (03/04) -- 85
-Wed (03/05) -- 63
-Thu (03/06) -- 79
-Fri (03/07) -- 74
-Sat (03/08) -- 91
-Average: 78
-
-Avg sleep: 7h 12m
-Avg deep: 1h 05m
-Avg REM: 1h 38m
-Efficiency: 91%
-
-Best night: Sat (03/08) (91)
-Worst night: Wed (03/05) (63)
-
-Solid week overall. Wednesday dipped -- late bedtime and shorter
-deep sleep. Saturday was your best night with strong REM cycles.
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*FITNESS*
-
-Steps
-  Sun (03/02) -- 8.2k
-  Mon (03/03) -- 12k
-  Tue (03/04) -- 6.5k
-  Wed (03/05) -- 9.1k
-  Thu (03/06) -- 11k
-  Fri (03/07) -- 7.8k
-  Sat (03/08) -- 14k
-  Average: 9,800 steps/day
-
-Workouts -- 4/7 days, 1,820 kcal total
-
-Mon (03/03) -- Running (32m, 340 cal, HR 155)
-Tue (03/04) -- Strength Training (45m, 280 cal, HR 128)
-Wed (03/05) -- Rest
-Thu (03/06) -- HIIT (28m, 310 cal) + Walking (40m, 180 cal)
-Fri (03/07) -- Rest
-Sat (03/08) -- Running (48m, 480 cal, HR 152)
-Sun (03/02) -- Rest
-
-Best day: Sat (03/08) -- 480 cal
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*RECOVERY*
-
-Sun (03/02) -- 74
-Mon (03/03) -- 68
-Tue (03/04) -- 81
-Wed (03/05) -- 59
-Thu (03/06) -- 72
-Fri (03/07) -- 70
-Sat (03/08) -- 79
-Average: 72
-
-Resting HR: 56 bpm (30d avg: 58)
-HRV: 42 ms (30d avg: 39)
-Resp rate: 14.2 breaths/min
-Walking HR: 98 bpm
-
-Verdict: STEADY
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*CONSISTENCY*
-
-Bedtime spread: +/-38 min
-Step variability: CV 28%
-Workout days: 4/7
-Sleep range: 1h 22m
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*CARDIO*
-
-Resting HR: 56 bpm (down, improving)
-Walking HR: 98 bpm
-HRV trend: up, good
-Resp rate: 14.2 breaths/min
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*PATTERNS*
-
-Workout days -- +18m deep sleep
-Early bedtime -- +12 sleep score
-Best sleep day: Saturday (avg 87)
-Worst sleep day: Wednesday (avg 64)
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*ANOMALIES*
-
-All clear -- metrics in normal range.
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*THIS WEEK'S FOCUS*
-
-Your Wednesday sleep is consistently your weakest night (avg 64).
-Try moving your bedtime 30 minutes earlier on Tue/Wed nights.
-Your workout days show 18 more minutes of deep sleep -- keep the
-Mon/Thu/Sat routine going.
-
--- -- -- -- -- -- -- -- -- -- -- -- -- --
-
-*PERSONAL BESTS*
-
-Best Sleep Score: 91
-Highest Steps: 14,230
-
---
-Stay consistent. Small wins compound.
--- HealthForge
-```
+Subject format: `HealthForge B — Sleep 85 | Fitness 58 | Recovery 92 (Mar 5 – 11, 2026)`
 
 ## Project Structure
 
@@ -212,28 +143,29 @@ Stay consistent. Small wins compound.
 HealthForge/
   app.py                              # CDK entry point
   stacks/
-    data_stack.py                     # DynamoDB + SQS
+    data_stack.py                     # DynamoDB + SQS + CloudWatch alarm
     ingest_stack.py                   # API Gateway + webhook + processor
-    analysis_stack.py                 # Step Functions + Lambdas + EventBridge
+    analysis_stack.py                 # Step Functions + Lambdas + EventBridge + CloudWatch alarm
   lambdas/
     webhook_receiver/handler.py       # Validates incoming JSON, sends to SQS
     data_processor/handler.py         # Parses metrics, deduplicates, writes to DynamoDB
     aggregation/handler.py            # Computes all scores, baselines, anomalies, correlations
     insight/handler.py                # Calls Gemini Flash for natural language insights
     email_renderer/
-      handler.py                      # Renders email and sends via SES
-      templates.py                    # All email formatting and section rendering
+      handler.py                      # Renders HTML email and sends via SES
+      templates.py                    # HTML email formatting and section rendering
     shared/
       dates.py                        # Week range calculation, time parsing
-      db.py                           # DynamoDB query helpers
+      db.py                           # DynamoDB query helpers (with pagination)
       scores.py                       # Sleep, fitness, recovery, consistency, cardio scoring
       correlations.py                 # Anomaly detection, pattern analysis
-      records.py                      # Personal records tracking
-    shared_layer/python/              # Lambda layer (copy of shared/ + templates.py)
+      records.py                      # Weekly bests tracking
+    shared_layer/python/              # Lambda layer (auto-synced via scripts/build_layer.sh)
   scripts/
+    build_layer.sh                    # Copies shared/ + templates.py into Lambda layer
     bulk_import.py                    # Direct DynamoDB backfill from JSON export
   tests/
-    unit/                             # 34 unit tests
+    unit/                             # 56 unit tests
 ```
 
 ## Setup
@@ -273,9 +205,10 @@ aws ses verify-email-identity --email-address you@example.com
 
 Check your inbox and click the verification link.
 
-### 4. Deploy
+### 4. Build the Lambda layer and deploy
 
 ```bash
+bash scripts/build_layer.sh
 cdk deploy --all
 ```
 

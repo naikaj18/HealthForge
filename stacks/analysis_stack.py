@@ -10,6 +10,7 @@ from aws_cdk import (
     aws_ssm as ssm,
     aws_iam as iam,
     aws_logs as logs,
+    aws_cloudwatch as cloudwatch,
 )
 from constructs import Construct
 from stacks.data_stack import DataStack
@@ -102,7 +103,9 @@ class AnalysisStack(Stack):
         email_fn.add_to_role_policy(
             iam.PolicyStatement(
                 actions=["ses:SendEmail", "ses:SendRawEmail"],
-                resources=[f"arn:aws:ses:{self.region}:{self.account}:identity/*"],
+                resources=[
+                    f"arn:aws:ses:{self.region}:{self.account}:identity/{sender_email}",
+                ],
             )
         )
 
@@ -173,4 +176,16 @@ class AnalysisStack(Stack):
                     "user_id": "default",
                 }),
             )],
+        )
+
+        # --- CloudWatch Alarm: Step Functions failures ---
+        state_machine.metric_failed(
+            period=Duration.days(1),
+        ).create_alarm(
+            self,
+            "StepFunctionFailureAlarm",
+            alarm_name="HealthForge-StepFunction-Failures",
+            threshold=1,
+            evaluation_periods=1,
+            comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         )
