@@ -19,7 +19,7 @@ iPhone (Health Auto Export app)
 
 There are two independent pipelines:
 
-**Data Ingestion (continuous):** The Health Auto Export iOS app sends Apple Health data to an API Gateway webhook once a day. A Lambda validates the payload, queues it in SQS, and a processor Lambda parses, deduplicates, and writes metrics to DynamoDB.
+**Data Ingestion (continuous):** The Health Auto Export iOS app sends Apple Health data to an API Gateway webhook every 6 hours via two automations (health metrics and workouts). A Lambda validates the payload, queues it in SQS, and a processor Lambda parses and writes metrics to DynamoDB, overwriting stale partial-day values with the latest daily totals.
 
 **Weekly Analysis (Sunday mornings):** EventBridge triggers a Step Functions state machine that runs three Lambdas in sequence -- aggregation (scores, baselines, anomalies, correlations), insight generation (Gemini Flash), and email rendering (SES). The pipeline includes a Choice state that skips email if no data exists for the week.
 
@@ -232,13 +232,21 @@ This creates three stacks: HealthForgeData, HealthForgeIngest, and HealthForgeAn
 ### 5. Configure Health Auto Export
 
 1. Open the app on your iPhone
-2. Create a new REST API automation
-3. Set the URL to: `https://{api-id}.execute-api.{region}.amazonaws.com/prod/ingest`
-4. Add header -- Key: `x-api-key`, Value: (from API Gateway console or CDK output)
-5. Data Type: Health Metrics, All Selected
-6. Export Format: JSON, Version: v2
-7. Sync Cadence: 1 day
-8. Tap Update
+2. Create **two** REST API automations (one for health metrics, one for workouts):
+
+**Automation 1 — Health Metrics:**
+- URL: `https://{api-id}.execute-api.{region}.amazonaws.com/prod/ingest`
+- Header — Key: `X-API-KEY`, Value: (from API Gateway console or CDK output)
+- Data Type: Health Metrics, select: Step Count, Sleep Analysis, Active Energy, Apple Exercise Time, Resting Heart Rate, Heart Rate Variability, Walking Heart Rate Average, Respiratory Rate
+- Summarize Data: On, Time Grouping: Daily
+- Export Format: JSON, Version: v2
+- Sync Cadence: 6 hours
+
+**Automation 2 — Workouts:**
+- Same URL and API key header as above
+- Data Type: Workouts
+- Export Format: JSON, Version: v2
+- Sync Cadence: 6 hours
 
 ### 6. Backfill historical data (optional)
 
