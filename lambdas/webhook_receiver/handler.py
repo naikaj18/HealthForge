@@ -1,6 +1,10 @@
 import json
 import os
+import logging
 import boto3
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 sqs = boto3.client("sqs")
 QUEUE_URL = os.environ["QUEUE_URL"]
@@ -13,18 +17,27 @@ def lambda_handler(event, context):
     except json.JSONDecodeError:
         return {"statusCode": 400, "body": json.dumps({"error": "Invalid JSON"})}
 
-    # Validate: must have data.metrics
-    if "data" not in body or "metrics" not in body.get("data", {}):
+    # Validate: must have data.metrics or data.workouts
+    data = body.get("data", {})
+    if "data" not in body:
         return {
             "statusCode": 400,
-            "body": json.dumps({"error": "Missing data.metrics"}),
+            "body": json.dumps({"error": "Missing data"}),
         }
 
-    metrics = body["data"]["metrics"]
-    if not isinstance(metrics, list) or len(metrics) == 0:
+    metrics = data.get("metrics", [])
+    workouts = data.get("workouts", [])
+
+    # Log sample of step_count metric to understand data shape
+    for m in metrics:
+        if m.get("name", "").lower() == "step_count":
+            sample = m.get("data", [])[:3]
+            logger.info(f"step_count metric: {len(m.get('data', []))} data points, sample: {json.dumps(sample)}")
+
+    if not metrics and not workouts:
         return {
             "statusCode": 400,
-            "body": json.dumps({"error": "metrics must be a non-empty list"}),
+            "body": json.dumps({"error": "Missing data.metrics or data.workouts"}),
         }
 
     # For now, single user — hardcode user ID
@@ -40,5 +53,9 @@ def lambda_handler(event, context):
 
     return {
         "statusCode": 200,
-        "body": json.dumps({"status": "received", "metrics_count": len(metrics)}),
+        "body": json.dumps({
+            "status": "received",
+            "metrics_count": len(metrics),
+            "workouts_count": len(workouts),
+        }),
     }

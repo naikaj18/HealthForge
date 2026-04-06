@@ -143,14 +143,8 @@ def lambda_handler(event, context):
                 date = parse_date(date_str)
                 item = build_item(user_id, metric_name, date, data_point)
 
-                try:
-                    table.put_item(
-                        Item=item,
-                        ConditionExpression="attribute_not_exists(PK)",
-                    )
-                    records_written += 1
-                except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
-                    records_skipped += 1
+                table.put_item(Item=item)
+                records_written += 1
 
         # Process workouts (separate array in Health Auto Export)
         workouts = payload.get("workouts", [])
@@ -162,14 +156,8 @@ def lambda_handler(event, context):
             date = parse_date(date_str)
             item = build_workout_item(user_id, date, workout)
 
-            try:
-                table.put_item(
-                    Item=item,
-                    ConditionExpression="attribute_not_exists(PK)",
-                )
-                records_written += 1
-            except dynamodb.meta.client.exceptions.ConditionalCheckFailedException:
-                records_skipped += 1
+            table.put_item(Item=item)
+            records_written += 1
 
     return {
         "written": records_written,
